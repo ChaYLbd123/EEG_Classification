@@ -31,9 +31,16 @@ from .cd_cnn import _max_norm_, _padding_same_keras
 
 class CNNLSTM(nn.Module):
     def __init__(self, n_classes=4, hidden=32, n_channels=64, n_times=480,
-                 F1=8, D=2, kernel_length=128, pool=4, dropout_rate=0.5):
+                 F1=8, D=2, kernel_length=128, pool=4, dropout_rate=0.5, lecture="dernier"):
+        """lecture : comment résumer la séquence de 120 états cachés en un seul vecteur.
+          "dernier" : dernier état caché h_n (modèle validé, cnn_lstm).
+          "moyenne" : moyenne des 120 états cachés (variante cnn_lstm_moy, option --pool moyenne).
+        """
         super().__init__()
+        if lecture not in ("dernier", "moyenne"):
+            raise ValueError(f"lecture inconnue : {lecture}")
         self.F1, self.D, self.n_channels, self.hidden = F1, D, n_channels, hidden
+        self.lecture = lecture
         n_feat = F1 * D               # 16 caractéristiques par pas de temps
         self.n_pas = n_times // pool  # 120 pas de temps
 
@@ -78,7 +85,13 @@ class CNNLSTM(nn.Module):
         # sorties : (B, 120, H)  état caché à chaque pas de temps
         # h_n     : (1, B, H)    dernier état caché (1 = nombre de couches)
         # c_n     : (1, B, H)    dernière mémoire de cellule (non utilisée ici)
-        h = h_n[-1]                   # (B, H)  identique à sorties[:, -1, :] ici
+        if self.lecture == "dernier":
+            h = h_n[-1]               # (B, H)  identique à sorties[:, -1, :] ici
+        else:
+            # Variante cnn_lstm_moy : moyenne des 120 états cachés.
+            # Chaque instant de la fenêtre compte autant. Le résumé dépend moins de la
+            # fin de la fenêtre, et un peu moins de la phase des oscillations. Aucun paramètre en plus.
+            h = sorties.mean(dim=1)   # (B, 120, H) -> (B, H)
         h = self.drop_lstm(h)         # (B, H)
         return self.classifieur(h)    # (B, n_classes)   logits
 

@@ -11,15 +11,19 @@ MODELES = {
 }
 
 
-def construire_modele(nom, n_classes, hidden=32):
+def construire_modele(nom, n_classes, hidden=32, pool="dernier"):
+    """pool (CNN-LSTM seulement) : "dernier" = dernier état caché (modèle validé),
+    "moyenne" = moyenne des 120 états cachés (variante cnn_lstm_moy)."""
     if nom == "cnn_lstm":
-        return CNNLSTM(n_classes=n_classes, hidden=hidden)
+        return CNNLSTM(n_classes=n_classes, hidden=hidden, lecture=pool)
     return MODELES[nom](n_classes=n_classes)
 
 
-def nom_modele(nom, hidden=32):
-    """Nom affiché et nom de dossier : cd_cnn, cnn_lstm32 ou cnn_lstm64."""
-    return f"{nom}{hidden}" if nom == "cnn_lstm" else nom
+def nom_modele(nom, hidden=32, pool="dernier"):
+    """Nom affiché et nom de dossier : cd_cnn, cnn_lstm32, cnn_lstm64, cnn_lstm_moy32..."""
+    if nom != "cnn_lstm":
+        return nom
+    return f"cnn_lstm_moy{hidden}" if pool == "moyenne" else f"cnn_lstm{hidden}"
 
 
 def compter_parametres(model):

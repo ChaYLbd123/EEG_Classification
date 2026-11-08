@@ -5,8 +5,24 @@ Dataset : PhysioNet EEG Motor Movement/Imagery. 64 électrodes, 160 Hz, fenêtre
 Tâches : 4 classes (repos, main gauche, main droite, pieds) et 2 classes (gauche, droite).
 
 Deux modèles sont comparés avec exactement les mêmes données, le même découpage et les mêmes
-hyperparamètres : **CD-CNN** et **CNN-LSTM** (32 unités cachées). Une variante à 64 unités
-(`--hidden 64`) existe dans le code comme option, lancée seulement sur demande.
+hyperparamètres : **CD-CNN** et **CNN-LSTM** (32 unités cachées). Deux variantes du CNN-LSTM
+existent dans le code comme options, lancées seulement sur demande : 64 unités (`--hidden 64`)
+et `cnn_lstm_moy` (moyenne des états cachés, `--pool moyenne`).
+
+## État d'exécution (au 2026-11-08)
+
+| Quoi | État |
+|---|---|
+| **Entraînement complet** (105 sujets, 5 plis, 50 époques max), CD-CNN et CNN-LSTM-32, 2 et 4 classes | **Pas encore exécuté.** Prévu sur Colab (`colab_run.ipynb`). Aucun chiffre complet n'existe pour l'instant. |
+| Essais partiels sur CPU (10 sujets) : vérification du code et diagnostics | Exécutés. Résultats dans [NOTES.md §5](NOTES.md). **Ils ne sont pas comparables** aux résultats complets. |
+| Test de sur-apprentissage (64 fenêtres) | Exécuté : CNN-LSTM-32 et CD-CNN atteignent tous les deux 100 % |
+| CNN-LSTM-64, `cnn_lstm_moy`, `--scheduler`, `--clip`, `--norm-essai` | Codés et testés (formes, paramètres), **jamais entraînés** |
+| Temps d'inférence, matrice de confusion, tableau final | À produire après l'entraînement complet |
+
+Sur 10 sujets, le CNN-LSTM-32 reste proche du hasard en 4 classes : sa perte de validation
+remonte dès l'époque 6 environ, ce qui indique un sur-apprentissage inter-sujets. L'entraînement
+complet (84 sujets d'entraînement par pli) dira si plus de données suffisent. Rien n'est modifié
+avant ces résultats.
 
 Les notebooks Keras d'origine (`notebooks/`) sont gardés tels quels, comme référence historique.
 Ils ne sont pas exécutables de haut en bas, et leurs chiffres contiennent des fuites de données.
@@ -22,8 +38,10 @@ l'article, les notebooks et ce code.
 | `models/cnn_lstm.py` | CNN-LSTM (bloc CNN du CD-CNN + LSTM) |
 | `training.py` | Boucle commune : GroupKFold, early stopping, adaptation au sujet, reprise après coupure |
 | `train.py` | Ligne de commande |
-| `colab_run.ipynb` | Lancement sur Google Colab (GPU) |
-| `NOTES.md` | Différences entre l'article et le code, incohérences de l'article, fuites dans les notebooks |
+| `colab_run.ipynb` | Lancement sur Google Colab (GPU) : 2 classes puis 4 classes, temps mesuré sur le GPU |
+| `rapport.py` | Figures : courbes de perte train/validation, test de sur-apprentissage |
+| `diagnostic_surapprentissage.py` | Test « apprendre 64 fenêtres par cœur » |
+| `NOTES.md` | Différences entre l'article et le code, incohérences de l'article, fuites dans les notebooks, journal des essais |
 
 ## Protocole (le même pour tous les modèles)
 
@@ -50,6 +68,8 @@ Options **désactivées par défaut**, lancées seulement sur demande :
 | `--clip` | écrêtage de la norme du gradient à 1,0 (`clip_grad_norm_`) |
 | `--norm-essai` | z-score de chaque fenêtre, électrode par électrode |
 | `--hidden 64` | CNN-LSTM avec 64 unités cachées au lieu de 32 |
+| `--pool moyenne` | variante `cnn_lstm_moy` : moyenne des 120 états cachés au lieu du dernier |
+| `--n-sujets N`, `--epoques E` | essai partiel (dossier suffixé `_{N}suj_{E}ep`) |
 
 Les options actives apparaissent dans le nom du dossier de résultats (par exemple `cd_cnn_4cl_clip`).
 
@@ -67,6 +87,7 @@ Les options actives apparaissent dans le nom du dossier de résultats (par exemp
 | CD-CNN | pooling (1,8) → convolution séparable → pooling (1,8) → dense | 7 | 2 866 / 3 092 |
 | CNN-LSTM-32 | pooling (1,4) → LSTM 32 → dense | 120 | 8 562 / 8 628 |
 | CNN-LSTM-64 (option `--hidden 64`) | pooling (1,4) → LSTM 64 → dense | 120 | 23 218 / 23 348 |
+| `cnn_lstm_moy32` (option `--pool moyenne`) | pooling (1,4) → LSTM 32 → **moyenne des 120 états** → dense | 120 | 8 562 / 8 628 |
 
 Les nombres de paramètres sont ceux de PyTorch (paramètres entraînables). Keras ajouterait
 les moyennes et variances de la BatchNorm : +80 pour le CD-CNN, +48 pour le CNN-LSTM.

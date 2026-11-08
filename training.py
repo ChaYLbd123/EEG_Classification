@@ -43,6 +43,7 @@ from models import compter_parametres, construire_modele, nom_modele
 class Config:
     model: str = "cd_cnn"          # "cd_cnn" ou "cnn_lstm"
     hidden: int = 32               # taille de l'état caché du LSTM (32 ; 64 en option)
+    pool: str = "dernier"          # lecture du LSTM : "dernier" (validé) ou "moyenne" (variante)
     n_classes: int = 4
     data_dir: str = "C:/Users/DELL/Downloads/eegmmidb-1.0.0/files"
     out_dir: str = "resultats"
@@ -171,7 +172,7 @@ def _lire_json(chemin):
 # ---------------------------------------------------------------------------
 def entrainer_global(cfg, Xt, yt, idx_train, idx_val, device, seed):
     fixer_graine(seed)
-    model = construire_modele(cfg.model, cfg.n_classes, cfg.hidden).to(device)
+    model = construire_modele(cfg.model, cfg.n_classes, cfg.hidden, cfg.pool).to(device)
     optimizer = creer_optimiseur(model, lr_epoque(cfg, 0))
     critere = nn.CrossEntropyLoss()
     loader = faire_loader(Xt, yt, idx_train, cfg.batch_size, shuffle=True, seed=seed)
@@ -217,7 +218,7 @@ def adapter_sujets(cfg, etat_global, X, y, groups, sujets, device, X_brut=None, 
     mode "complet" : on utilise X (z-score du notebook, statistiques sur tout le sujet).
     mode "train"   : on re-normalise X_brut avec les statistiques des 75 % d'adaptation.
     """
-    model = construire_modele(cfg.model, cfg.n_classes, cfg.hidden).to(device)
+    model = construire_modele(cfg.model, cfg.n_classes, cfg.hidden, cfg.pool).to(device)
     critere = nn.CrossEntropyLoss()
     res = {}
     for s in sujets:
@@ -263,7 +264,7 @@ def lancer_validation_croisee(cfg):
     options = options_essai + "".join(suffixe for suffixe, actif in (
         ("_sched", cfg.scheduler), ("_clip", cfg.clip),
         ("_normessai", cfg.norm_essai), ("_essai", cfg.quick)) if actif)
-    nom = f"{nom_modele(cfg.model, cfg.hidden)}_{cfg.n_classes}cl{options}"
+    nom = f"{nom_modele(cfg.model, cfg.hidden, cfg.pool)}_{cfg.n_classes}cl{options}"
     dossier = os.path.join(cfg.out_dir, nom)
     os.makedirs(dossier, exist_ok=True)
     cache_dir = cfg.cache_dir or os.path.join(cfg.out_dir, "cache")
@@ -302,7 +303,7 @@ def lancer_validation_croisee(cfg):
 
     print(f"Fenêtres : {len(y)}, sujets : {len(np.unique(groups))}, "
           f"classes : {np.bincount(y).tolist()}")
-    n_params = compter_parametres(construire_modele(cfg.model, cfg.n_classes, cfg.hidden))
+    n_params = compter_parametres(construire_modele(cfg.model, cfg.n_classes, cfg.hidden, cfg.pool))
     print(f"Paramètres : {n_params}")
 
     gkf = GroupKFold(n_splits=cfg.n_folds)
@@ -362,7 +363,7 @@ def resumer(dossier, cfg, n_params, modes):
     """Moyenne ± écart-type sur les plis (écart-type de population, np.std, ddof=0)."""
     G = [_lire_json(os.path.join(dossier, f"pli{k}_global.json")) for k in range(1, cfg.n_folds + 1)]
     acc = [g["test_acc"] for g in G]
-    resume = {"modele": nom_modele(cfg.model, cfg.hidden), "n_classes": cfg.n_classes, "essai_rapide": cfg.quick,
+    resume = {"modele": nom_modele(cfg.model, cfg.hidden, cfg.pool), "n_classes": cfg.n_classes, "essai_rapide": cfg.quick,
               "n_sujets": sum(len(g["sujets_test"]) for g in G), "parametres": n_params,
               "global_par_pli": acc, "global_moy": float(np.mean(acc)), "global_std": float(np.std(acc)),
               "temps_entrainement_par_pli_s": [g["temps_entrainement_s"] for g in G],

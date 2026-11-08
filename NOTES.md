@@ -59,10 +59,31 @@ PyTorch de ce dépôt (protocole corrigé) seront probablement plus bas, surtout
 
 ---
 
-## 4. Journal des diagnostics et des modifications
+## 4. Résultats complets (105 sujets, 5 plis) : PAS ENCORE EXÉCUTÉS
+
+L'entraînement complet (CD-CNN et CNN-LSTM-32, 2 et 4 classes, protocole par défaut) est prévu
+sur Colab. **Aucun chiffre complet n'existe à ce jour.** Les chiffres de la section 5 viennent
+d'essais partiels sur CPU (10 sujets) et ne doivent pas être cités comme résultats.
+
+## 5. Journal des essais partiels (CPU, 10 sujets) et des modifications
+
+Ces essais servent seulement à vérifier le code et à diagnostiquer. Ils ne sont **pas comparables**
+aux résultats complets : il n'y a que 10 sujets, et donc 2 sujets de test par pli.
 
 Règle : tout réglage se juge sur la **validation** (10 % des sujets d'entraînement), jamais sur
-le test. Toute modification est appliquée aux deux modèles et notée ici.
+le test. Toute modification est appliquée aux deux modèles et notée ici. Si une modification ne
+concerne que le CNN-LSTM, elle devient une **variante séparée**, et le modèle validé ne change pas.
+
+### Essais sur l'ancien protocole (phase 1 : scheduler 0,01 / 0,001 / 0,0001)
+CD-CNN, 10 sujets, 5 époques : 80,44 % ± 11,26 en 2 classes et 54,58 % ± 8,65 en 4 classes
+(précision globale). Ce protocole a ensuite été remplacé par celui de l'article (lr fixe 0,001).
+Les résultats sont archivés dans `resultats/phase1_ancien_protocole/`.
+
+### Essai rapide, protocole de l'article (10 sujets, 5 époques)
+| Modèle | 2 cl. global | 4 cl. global | 4 cl. adapt. complet (après) | 4 cl. adapt. train (après) |
+|---|---|---|---|---|
+| CD-CNN | 81,56 % ± 8,74 | 53,66 % ± 8,89 | 57,41 % | 57,19 % |
+| CNN-LSTM-32 | 53,78 % ± 3,27 | 30,04 % ± 7,26 | 31,30 % | 30,95 % |
 
 ### 2026-11-08 : outils ajoutés (aucun hyperparamètre modifié)
 - `train.py --n-sujets N --epoques E` : essais partiels sur CPU. Le dossier de résultats est
@@ -91,3 +112,21 @@ d'optimisation. Le CD-CNN, avec les mêmes données, garde une validation stable
 Figure : `resultats/diagnostics/courbes_30ep_4cl.png`.
 
 **Aucune modification n'a encore été appliquée.** Les pistes sont en attente de décision.
+
+### 2026-11-08 : variante `cnn_lstm_moy` préparée (piste c), NON entraînée
+- **Quoi :** au lieu du dernier état caché `h_n[-1]`, le classifieur reçoit la **moyenne des 120
+  états cachés** (`sorties.mean(dim=1)`, forme (B, 120, 32) → (B, 32)).
+- **Pourquoi :** chaque instant de la fenêtre compte autant. Le résumé dépend moins de la fin de
+  la fenêtre et de la phase des oscillations. C'est une hypothèse contre le sur-apprentissage
+  inter-sujets observé ci-dessus.
+- **Comment la lancer :** `--model cnn_lstm --pool moyenne`. Dossiers `cnn_lstm_moy32_*`.
+- **Ce qui ne change pas :** le CNN-LSTM-32 validé (`--pool dernier`, par défaut) et le CD-CNN.
+  Les deux ont le même nombre de paramètres : 8 562 / 8 628 (une moyenne n'a pas de poids).
+- **Vérifié :** formes de sortie (B, 2) et (B, 4), égalité avec une moyenne calculée à la main,
+  nombres de paramètres. **Pas d'entraînement.**
+- **Décision :** à évaluer seulement après les résultats complets, et sur la validation uniquement.
+
+### Pistes en attente (après les résultats complets, jugées sur la validation uniquement)
+- (b) `--norm-essai`, pour les deux modèles ;
+- (d) puissance avant le LSTM (carré → pooling → log) : variante séparée ;
+- (e) weight decay pour les deux modèles, ou H=16 : variante séparée.
