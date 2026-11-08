@@ -59,10 +59,11 @@ PyTorch de ce dépôt (protocole corrigé) seront probablement plus bas, surtout
 
 ---
 
-## 4. Résultats complets (105 sujets, 5 plis) : PAS ENCORE EXÉCUTÉS
+## 4. Résultats complets (105 sujets, 5 plis) : référence « sans réglage »
 
-L'entraînement complet (CD-CNN et CNN-LSTM-32, 2 et 4 classes, protocole par défaut) est prévu
-sur Colab. **Aucun chiffre complet n'existe à ce jour.** Les chiffres de la section 5 viennent
+L'entraînement complet (CD-CNN et CNN-LSTM-32, 2 et 4 classes, protocole de l'article) a été lancé
+sur Colab. **Ses chiffres ne sont pas encore reportés ici** (en attente des fichiers `resume.json`
+et `pli*_global.json`). Ils serviront de référence pour le réglage (§6) et ne seront pas modifiés. Les chiffres de la section 5 viennent
 d'essais partiels sur CPU (10 sujets) et ne doivent pas être cités comme résultats.
 
 ## 5. Journal des essais partiels (CPU, 10 sujets) et des modifications
@@ -130,3 +131,53 @@ Figure : `resultats/diagnostics/courbes_30ep_4cl.png`.
 - (b) `--norm-essai`, pour les deux modèles ;
 - (d) puissance avant le LSTM (carré → pooling → log) : variante séparée ;
 - (e) weight decay pour les deux modèles, ou H=16 : variante séparée.
+
+---
+
+## 6. Réglage du CNN-LSTM : protocole de sélection (écrit le 2026-11-08, AVANT tout essai)
+
+### Référence « sans réglage » (ne sera pas modifiée)
+Les résultats complets du protocole de l'article (lr 0,001, 50 époques max, early stopping sur
+la validation) se trouvent dans les dossiers `cd_cnn_{2,4}cl` et `cnn_lstm32_{2,4}cl`. Ils restent
+la référence. Les variantes écrivent toujours dans **d'autres dossiers** (suffixes `_clip`,
+`_lr0.0005`, `_normessai`, préfixe `cnn_lstm_moy32`). La reprise refuse d'écrire dans un dossier
+dont la configuration diffère. `comparer_variantes.py` ne fait que lire les résultats.
+
+### Variantes : une seule modification à la fois, en 4 classes d'abord
+| Variante | Option | CD-CNN | CNN-LSTM-32 | Remarque |
+|---|---|---|---|---|
+| (a) | `--clip` (norme du gradient ≤ 1,0) | oui | oui | comparaison équitable |
+| (b) | `--pool moyenne` → `cnn_lstm_moy32` | — | oui | **nouvelle variante du CNN-LSTM** (voir §5). Le CD-CNN n'a pas de LSTM, donc rien d'équivalent. |
+| (c) | `--lr 5e-4` (lr fixe de l'entraînement global) | oui | oui | l'adaptation reste à 5e-4 |
+| (d) | `--norm-essai` (z-score de chaque fenêtre) | oui | oui | un seul mode d'adaptation (les deux deviennent identiques) |
+
+Tout le reste est identique à la référence : données, GroupKFold, sujets de validation (même
+graine), batch 16, 50 époques max, patience 15, graine.
+
+### Critère de choix (décidé avant de voir le moindre résultat de variante)
+1. **Critère unique : la perte de validation retenue, moyennée sur les 5 plis.** Pour chaque pli,
+   c'est l'entropie croisée sur les sujets de validation (10 % des sujets d'entraînement) à
+   l'époque gardée par l'early stopping. **Plus basse = meilleure.**
+2. **Le test n'est jamais utilisé pour choisir.** La précision test est rapportée pour
+   information seulement.
+3. On compare chaque variante à **la référence de son propre modèle** (CNN-LSTM-32 ou CD-CNN).
+   Une variante n'est retenue que si sa perte de validation moyenne est **plus basse que celle de
+   la référence**. Sinon, la référence reste le meilleur réglage, et c'est un résultat valable.
+4. Information de robustesse, qui ne change pas la règle : on affiche l'écart-type et le nombre
+   de plis où la variante bat la référence. Les sujets de validation sont les mêmes pour toutes
+   les variantes, donc la comparaison pli à pli a un sens. Si l'écart est plus petit que
+   l'écart-type, on le signale comme « pas de différence nette ».
+5. Seules les variantes avec **5 plis terminés** comptent.
+6. **Confirmation en 2 classes :** la meilleure variante du CNN-LSTM en 4 classes (si elle bat la
+   référence) est relancée en 2 classes, avec la même règle. Si c'est (a), (c) ou (d), le CD-CNN
+   est relancé avec la même option, pour l'équité. L'adaptation au sujet (deux modes de z-score)
+   est alors calculée pour la variante retenue, en 4 et en 2 classes.
+7. **Criblage sans adaptation :** en 4 classes, les variantes sont lancées avec
+   `--sans-adaptation`, car le critère ne dépend que de l'entraînement global. Relancer le même
+   dossier sans cette option ajoute ensuite l'adaptation aux plis existants, sans réentraîner.
+8. Toutes les variantes sont rapportées ici, **y compris celles qui échouent** : perte de
+   validation et précision test (`comparer_variantes.py` produit le tableau).
+
+### Résultats des variantes
+**Pas encore exécutées.** Le tableau sera ajouté ici à partir de `variantes_4cl.md` et
+`variantes_2cl.md`.

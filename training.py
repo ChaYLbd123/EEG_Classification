@@ -68,6 +68,10 @@ class Config:
     #   "both"    : on calcule les deux
     adapt_norm: str = "both"
     quick: bool = False
+    # Criblage des variantes : entraînement global seulement, sans adaptation au sujet.
+    # Ce champ n'entre pas dans la comparaison des configs : on peut relancer ensuite le même
+    # dossier sans cette option, et seule l'adaptation manquante sera calculée.
+    sans_adaptation: bool = False
 
 
 def lr_epoque(cfg, epoch):
@@ -262,7 +266,8 @@ def lancer_validation_croisee(cfg):
     else:
         options_essai = ""
     options = options_essai + "".join(suffixe for suffixe, actif in (
-        ("_sched", cfg.scheduler), ("_clip", cfg.clip),
+        ("_sched", cfg.scheduler), (f"_lr{cfg.lr:g}", cfg.lr != Config.lr and not cfg.scheduler),
+        ("_clip", cfg.clip),
         ("_normessai", cfg.norm_essai), ("_essai", cfg.quick)) if actif)
     nom = f"{nom_modele(cfg.model, cfg.hidden, cfg.pool)}_{cfg.n_classes}cl{options}"
     dossier = os.path.join(cfg.out_dir, nom)
@@ -281,7 +286,8 @@ def lancer_validation_croisee(cfg):
         ancienne = _lire_json(chemin_cfg)
         defauts = asdict(Config())
         diff = {k: (ancienne.get(k, defauts[k]), v) for k, v in asdict(cfg).items()
-                if k not in ("data_dir", "out_dir", "cache_dir") and ancienne.get(k, defauts[k]) != v}
+                if k not in ("data_dir", "out_dir", "cache_dir", "sans_adaptation")
+                and ancienne.get(k, defauts[k]) != v}
         if diff:
             raise RuntimeError(f"La config diffère de celle déjà sauvegardée dans {dossier} : {diff}. "
                                "Change de dossier de sortie ou supprime les anciens résultats.")
@@ -295,6 +301,9 @@ def lancer_validation_croisee(cfg):
         X = normaliser_par_essai(X)
         modes = ["complet"]
         print("Normalisation par essai activée : un seul mode d'adaptation.")
+    if cfg.sans_adaptation:
+        modes = []
+        print("Option --sans-adaptation : entraînement global seulement (criblage des variantes).")
     X_brut = None
     if "train" in modes:
         X_brut, y_b, g_b = charger_donnees(cfg.data_dir, cfg.n_classes, cfg.n_subjects, False, cache_dir)
@@ -356,19 +365,32 @@ def lancer_validation_croisee(cfg):
             _ecrire_json(f_adapt, {"pli": k, "mode": mode, "avant": av, "apres": ap,
                                    "temps_s": dt, "par_sujet": res})
 
-    return resumer(dossier, cfg, n_params, modes)
+    # Résumé : tous les modes d'adaptation dont les 5 plis existent (même d'un lancement précédent).
+    modes_finis = [m for m in ("complet", "train")
+                   if all(os.path.exists(os.path.join(dossier, f"pli{k}_adapt_{m}.json"))
+                          for k in range(1, cfg.n_folds + 1))]
+    return resumer(dossier, cfg, n_params, modes_finis)
+
+
+def perte_val_retenue(g):
+    """Critère de sélection des variantes : perte de validation à l'époque retenue
+    par l'early stopping (= la plus basse). Validation = sujets d'entraînement mis de côté."""
+    return g["historique"]["val_loss"][g["meilleure_epoque"] - 1]
 
 
 def resumer(dossier, cfg, n_params, modes):
     """Moyenne ± écart-type sur les plis (écart-type de population, np.std, ddof=0)."""
     G = [_lire_json(os.path.join(dossier, f"pli{k}_global.json")) for k in range(1, cfg.n_folds + 1)]
     acc = [g["test_acc"] for g in G]
+    pv = [perte_val_retenue(g) for g in G]
     resume = {"modele": nom_modele(cfg.model, cfg.hidden, cfg.pool), "n_classes": cfg.n_classes, "essai_rapide": cfg.quick,
               "n_sujets": sum(len(g["sujets_test"]) for g in G), "parametres": n_params,
               "global_par_pli": acc, "global_moy": float(np.mean(acc)), "global_std": float(np.std(acc)),
               "temps_entrainement_par_pli_s": [g["temps_entrainement_s"] for g in G],
               "epoques_par_pli": [g["epoques_faites"] for g in G],
-              "device": G[0]["device"]}
+              "device": G[0]["device"],
+              "val_loss_retenue_par_pli": pv, "val_loss_retenue_moy": float(np.mean(pv)),
+              "val_loss_retenue_std": float(np.std(pv))}
     for mode in modes:
         A = [_lire_json(os.path.join(dossier, f"pli{k}_adapt_{mode}.json")) for k in range(1, cfg.n_folds + 1)]
         for cle in ("avant", "apres"):
@@ -381,7 +403,8 @@ def resumer(dossier, cfg, n_params, modes):
 
     print("\n" + "=" * 70)
     print(f"RÉSUMÉ {os.path.basename(dossier)}  (moyenne ± écart-type sur {cfg.n_folds} plis)")
-    print(f"  Global (test)              : {resume['global_moy']:.2%} ± {resume['global_std']:.2%}")
+    print(f"  Perte val. retenue (critère): {resume['val_loss_retenue_moy']:.4f} ± {resume['val_loss_retenue_std']:.4f}")
+    print(f"  Global (test, information) : {resume['global_moy']:.2%} ± {resume['global_std']:.2%}")
     for mode in modes:
         print(f"  Adaptation [{mode:7s}] avant : {resume[f'adapt_{mode}_avant_moy']:.2%} ± "
               f"{resume[f'adapt_{mode}_avant_std']:.2%}   après : "

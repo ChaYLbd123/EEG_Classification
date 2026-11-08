@@ -13,10 +13,11 @@ et `cnn_lstm_moy` (moyenne des états cachés, `--pool moyenne`).
 
 | Quoi | État |
 |---|---|
-| **Entraînement complet** (105 sujets, 5 plis, 50 époques max), CD-CNN et CNN-LSTM-32, 2 et 4 classes | **Pas encore exécuté.** Prévu sur Colab (`colab_run.ipynb`). Aucun chiffre complet n'existe pour l'instant. |
+| **Entraînement complet** (105 sujets, 5 plis, 50 époques max), CD-CNN et CNN-LSTM-32, 2 et 4 classes = **référence « sans réglage »** | Exécuté sur Colab (`colab_run.ipynb`). **Chiffres pas encore reportés dans ce dépôt** (en attente des fichiers `resume.json`). |
+| **Variantes de réglage** (a) `--clip`, (b) `cnn_lstm_moy`, (c) `--lr 5e-4`, (d) `--norm-essai` | Préparées (`colab_variantes.ipynb`), **pas encore exécutées**. Critère fixé à l'avance : NOTES.md §6. |
 | Essais partiels sur CPU (10 sujets) : vérification du code et diagnostics | Exécutés. Résultats dans [NOTES.md §5](NOTES.md). **Ils ne sont pas comparables** aux résultats complets. |
 | Test de sur-apprentissage (64 fenêtres) | Exécuté : CNN-LSTM-32 et CD-CNN atteignent tous les deux 100 % |
-| CNN-LSTM-64, `cnn_lstm_moy`, `--scheduler`, `--clip`, `--norm-essai` | Codés et testés (formes, paramètres), **jamais entraînés** |
+| CNN-LSTM-64, `--scheduler` | Codés et testés (formes, paramètres), **jamais entraînés** |
 | Temps d'inférence, matrice de confusion, tableau final | À produire après l'entraînement complet |
 
 Sur 10 sujets, le CNN-LSTM-32 reste proche du hasard en 4 classes : sa perte de validation
@@ -38,7 +39,9 @@ l'article, les notebooks et ce code.
 | `models/cnn_lstm.py` | CNN-LSTM (bloc CNN du CD-CNN + LSTM) |
 | `training.py` | Boucle commune : GroupKFold, early stopping, adaptation au sujet, reprise après coupure |
 | `train.py` | Ligne de commande |
-| `colab_run.ipynb` | Lancement sur Google Colab (GPU) : 2 classes puis 4 classes, temps mesuré sur le GPU |
+| `colab_run.ipynb` | Lancement sur Google Colab (GPU) : 2 classes puis 4 classes, temps mesuré sur le GPU (référence) |
+| `colab_variantes.ipynb` | Variantes de réglage, une cellule par variante, puis confirmation en 2 classes |
+| `comparer_variantes.py` | Tableau des variantes (lecture seule). Critère : perte de validation retenue |
 | `rapport.py` | Figures : courbes de perte train/validation, test de sur-apprentissage |
 | `diagnostic_surapprentissage.py` | Test « apprendre 64 fenêtres par cœur » |
 | `NOTES.md` | Différences entre l'article et le code, incohérences de l'article, fuites dans les notebooks, journal des essais |
@@ -69,6 +72,8 @@ Options **désactivées par défaut**, lancées seulement sur demande :
 | `--norm-essai` | z-score de chaque fenêtre, électrode par électrode |
 | `--hidden 64` | CNN-LSTM avec 64 unités cachées au lieu de 32 |
 | `--pool moyenne` | variante `cnn_lstm_moy` : moyenne des 120 états cachés au lieu du dernier |
+| `--lr 5e-4` | learning rate fixe de l'entraînement global (défaut 0,001), suffixe `_lr0.0005` |
+| `--sans-adaptation` | entraînement global seulement (criblage). Relancer sans l'option ajoute l'adaptation |
 | `--n-sujets N`, `--epoques E` | essai partiel (dossier suffixé `_{N}suj_{E}ep`) |
 
 Les options actives apparaissent dans le nom du dossier de résultats (par exemple `cd_cnn_4cl_clip`).

@@ -43,6 +43,11 @@ def main():
     p.add_argument("--seed", type=int, default=Config.seed)
     p.add_argument("--scheduler", action="store_true",
                    help="lr du notebook 0.01/0.001/0.0001 au lieu du lr fixe 0.001 (désactivé par défaut)")
+    p.add_argument("--lr", type=float, default=Config.lr,
+                   help="learning rate fixe de l'entraînement global (défaut 0.001 ; variante : 5e-4)")
+    p.add_argument("--sans-adaptation", action="store_true",
+                   help="entraînement global seulement (criblage des variantes) ; "
+                        "relancer sans cette option ajoute l'adaptation aux plis existants")
     p.add_argument("--clip", action="store_const", const=1.0, default=None,
                    help="écrêtage de la norme du gradient à 1.0 (désactivé par défaut)")
     p.add_argument("--norm-essai", action="store_true",
@@ -63,7 +68,8 @@ def main():
                 extra["max_epochs"] = a.epoques
             cfg = Config(**extra, model=modele, hidden=a.hidden, pool=a.pool, n_classes=n_classes, data_dir=a.data_dir, out_dir=a.out_dir,
                          cache_dir=a.cache_dir, quick=a.quick, adapt_norm=a.adapt_norm, seed=a.seed,
-                         scheduler=a.scheduler, clip=a.clip, norm_essai=a.norm_essai)
+                         scheduler=a.scheduler, clip=a.clip, norm_essai=a.norm_essai,
+                         lr=a.lr, sans_adaptation=a.sans_adaptation)
             lancer_validation_croisee(cfg)
 
 
