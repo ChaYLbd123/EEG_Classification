@@ -1,0 +1,16 @@
+# Données EEG et poids de modèles (trop gros pour git)
+*.edf
+*.h5
+*.pt
+*.npz
+
+# Résultats d'entraînement et cache des données
+resultats/
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Journaux
+*.log
