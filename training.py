@@ -255,7 +255,12 @@ def lancer_validation_croisee(cfg):
     if cfg.quick:
         cfg.n_subjects, cfg.max_epochs = 10, 5
     # Les options actives apparaissent dans le nom du dossier : pas de mélange entre variantes.
-    options = "".join(suffixe for suffixe, actif in (
+    # Essai partiel (moins de sujets ou d'époques que le protocole complet) : visible dans le nom.
+    if not cfg.quick and (cfg.n_subjects != Config.n_subjects or cfg.max_epochs != Config.max_epochs):
+        options_essai = f"_{cfg.n_subjects}suj_{cfg.max_epochs}ep"
+    else:
+        options_essai = ""
+    options = options_essai + "".join(suffixe for suffixe, actif in (
         ("_sched", cfg.scheduler), ("_clip", cfg.clip),
         ("_normessai", cfg.norm_essai), ("_essai", cfg.quick)) if actif)
     nom = f"{nom_modele(cfg.model, cfg.hidden)}_{cfg.n_classes}cl{options}"

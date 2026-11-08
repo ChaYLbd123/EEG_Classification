@@ -56,3 +56,38 @@ Légende : **[A]** = article, **[NB]** = notebooks Keras, **[PT]** = code PyTorc
 
 **Conséquence :** les chiffres des Tab. 3 et 4 ne peuvent pas servir de référence directe. Les chiffres
 PyTorch de ce dépôt (protocole corrigé) seront probablement plus bas, surtout après adaptation.
+
+---
+
+## 4. Journal des diagnostics et des modifications
+
+Règle : tout réglage se juge sur la **validation** (10 % des sujets d'entraînement), jamais sur
+le test. Toute modification est appliquée aux deux modèles et notée ici.
+
+### 2026-11-08 : outils ajoutés (aucun hyperparamètre modifié)
+- `train.py --n-sujets N --epoques E` : essais partiels sur CPU. Le dossier de résultats est
+  suffixé `_{N}suj_{E}ep`.
+- `diagnostic_surapprentissage.py` et `rapport.py` (figures).
+
+### 2026-11-08 : test de sur-apprentissage (64 fenêtres, 4 classes, 600 pas, lr 0,001)
+Perte sur les 64 fenêtres, mesurée en mode eval :
+- CNN-LSTM-32 : 1,389 → 0,007, 100 % de précision ;
+- CD-CNN : 1,387 → 0,158, 100 % de précision.
+
+**Verdict :** le modèle et la boucle d'entraînement sont capables d'apprendre. Il n'y a pas de bug
+de forme, de gradient ou d'initialisation. Figure : `resultats/diagnostics/surapprentissage.png`.
+
+### 2026-11-08 : essai 10 sujets, 30 époques max, 4 classes (protocole par défaut)
+| Modèle | Global (test) | Adapt. complet après | Adapt. train après | Meilleure époque (val) |
+|---|---|---|---|---|
+| CD-CNN | 57,55 % ± 9,99 | 61,21 % | 61,00 % | 9, 20, 30, 18, 27 |
+| CNN-LSTM-32 | 30,15 % ± 4,95 | 31,61 % | 30,70 % | 6, 6, 8, 2, 6 |
+
+**Observation :** pour le CNN-LSTM-32, la perte train baisse régulièrement (environ 1,40 → 0,95 à 1,1).
+La perte de validation, elle, remonte dès l'époque 6 environ (jusqu'à 1,5 à 1,8, au-dessus du
+hasard). Le modèle apprend donc des motifs propres aux sujets d'entraînement, qui ne se
+transfèrent pas aux nouveaux sujets : c'est un **sur-apprentissage inter-sujets**, pas un problème
+d'optimisation. Le CD-CNN, avec les mêmes données, garde une validation stable autour de 1,0.
+Figure : `resultats/diagnostics/courbes_30ep_4cl.png`.
+
+**Aucune modification n'a encore été appliquée.** Les pistes sont en attente de décision.

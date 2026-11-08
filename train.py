@@ -31,6 +31,9 @@ def main():
     p.add_argument("--out-dir", default=Config.out_dir)
     p.add_argument("--cache-dir", default=None, help="cache .npz des données (défaut : <out-dir>/cache)")
     p.add_argument("--quick", action="store_true", help="essai rapide : 10 sujets, 5 époques")
+    p.add_argument("--n-sujets", type=int, default=None,
+                   help="sujets 1..N seulement (essais plus longs sur CPU) ; défaut : 109 (soit 105 sujets)")
+    p.add_argument("--epoques", type=int, default=None, help="nombre maximum d'époques (défaut : 50)")
     p.add_argument("--adapt-norm", default="both", choices=["complet", "train", "both"])
     p.add_argument("--seed", type=int, default=Config.seed)
     p.add_argument("--scheduler", action="store_true",
@@ -48,7 +51,12 @@ def main():
                 print(f"\n{nom_modele(modele, a.hidden)}, {n_classes} classes")
                 resume_modele(construire_modele(modele, n_classes, a.hidden))
                 continue
-            cfg = Config(model=modele, hidden=a.hidden, n_classes=n_classes, data_dir=a.data_dir, out_dir=a.out_dir,
+            extra = {}
+            if a.n_sujets:
+                extra["n_subjects"] = a.n_sujets
+            if a.epoques:
+                extra["max_epochs"] = a.epoques
+            cfg = Config(**extra, model=modele, hidden=a.hidden, n_classes=n_classes, data_dir=a.data_dir, out_dir=a.out_dir,
                          cache_dir=a.cache_dir, quick=a.quick, adapt_norm=a.adapt_norm, seed=a.seed,
                          scheduler=a.scheduler, clip=a.clip, norm_essai=a.norm_essai)
             lancer_validation_croisee(cfg)
