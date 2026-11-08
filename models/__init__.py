@@ -1,17 +1,25 @@
 """Registre des modèles et petits outils (nombre de paramètres, résumé couche par couche)."""
 
 import torch
-import torch.nn as nn
 
 from .cd_cnn import CDCNN
+from .cnn_lstm import CNNLSTM
 
 MODELES = {
     "cd_cnn": CDCNN,
+    "cnn_lstm": CNNLSTM,   # taille de l'état caché : option hidden (32 par défaut, 64 en option)
 }
 
 
-def construire_modele(nom, n_classes):
+def construire_modele(nom, n_classes, hidden=32):
+    if nom == "cnn_lstm":
+        return CNNLSTM(n_classes=n_classes, hidden=hidden)
     return MODELES[nom](n_classes=n_classes)
+
+
+def nom_modele(nom, hidden=32):
+    """Nom affiché et nom de dossier : cd_cnn, cnn_lstm32 ou cnn_lstm64."""
+    return f"{nom}{hidden}" if nom == "cnn_lstm" else nom
 
 
 def compter_parametres(model):
@@ -34,6 +42,8 @@ def resume_modele(model, forme_entree=(1, 1, 64, 480)):
 
     def hook(module, _inp, out):
         n = sum(p.numel() for p in module.parameters(recurse=False))
+        if isinstance(out, tuple):      # le LSTM renvoie (sorties, (h_n, c_n))
+            out = out[0]
         lignes.append((module._nom, type(module).__name__, tuple(out.shape), n))
 
     handles = []

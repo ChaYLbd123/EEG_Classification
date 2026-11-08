@@ -4,8 +4,12 @@ Protocole (le même pour tous les modèles) :
   1. GroupKFold à 5 plis PAR SUJET : aucun sujet de test n'est vu pendant l'entraînement.
   2. Dans chaque pli, 10 % des sujets d'ENTRAÎNEMENT forment la validation (GroupShuffleSplit).
      L'early stopping regarde la perte de validation, jamais le test.
-  3. Learning rate du CD-CNN : 0.01 (époques 0-19), puis 0.001 (20-49), puis 0.0001.
-     Adam, batch 16, 100 époques maximum, patience 15, on restaure les meilleurs poids.
+  3. Protocole de l'article (section 2.3.1) : Adam, learning rate FIXE 0.001, batch 16,
+     50 époques maximum. En plus : early stopping (patience 15, meilleurs poids restaurés).
+     Options désactivées par défaut :
+       --scheduler  : learning rate du notebook CD-CNN, 0.01 / 0.001 / 0.0001
+       --clip       : écrêtage de la norme du gradient à 1.0
+       --norm-essai : z-score de chaque fenêtre (en plus du z-score par sujet)
   4. Évaluation du modèle du pli k sur les sujets de test du pli k.
   5. Adaptation au sujet : le modèle du pli k est adapté UNIQUEMENT aux sujets de test
      du pli k (il ne les a jamais vus). Pour chaque sujet : KFold 4 plis (75 % / 25 %),
@@ -28,8 +32,8 @@ import torch.nn as nn
 from sklearn.model_selection import GroupKFold, GroupShuffleSplit, KFold
 from torch.utils.data import DataLoader, Subset, TensorDataset
 
-from data import charger_donnees, zscore_sujet
-from models import compter_parametres, construire_modele
+from data import charger_donnees, normaliser_par_essai, zscore_sujet
+from models import compter_parametres, construire_modele, nom_modele
 
 
 # ---------------------------------------------------------------------------
@@ -37,13 +41,18 @@ from models import compter_parametres, construire_modele
 # ---------------------------------------------------------------------------
 @dataclass
 class Config:
-    model: str = "cd_cnn"
+    model: str = "cd_cnn"          # "cd_cnn" ou "cnn_lstm"
+    hidden: int = 32               # taille de l'état caché du LSTM (32 ; 64 en option)
     n_classes: int = 4
     data_dir: str = "C:/Users/DELL/Downloads/eegmmidb-1.0.0/files"
     out_dir: str = "resultats"
     cache_dir: str = None          # None -> <out_dir>/cache
     n_subjects: int = 109          # sujets 1..n_subjects (moins 88, 92, 100, 104)
-    max_epochs: int = 100
+    max_epochs: int = 50           # article : 50 époques
+    lr: float = 1e-3               # article : Adam, lr fixe 0.001
+    scheduler: bool = False        # option : scheduler du notebook (0.01 / 0.001 / 0.0001)
+    clip: float = None             # option : écrêtage du gradient (None = désactivé)
+    norm_essai: bool = False       # option : z-score par fenêtre
     patience: int = 15
     batch_size: int = 16
     seed: int = 42
@@ -60,8 +69,13 @@ class Config:
     quick: bool = False
 
 
+def lr_epoque(cfg, epoch):
+    """Learning rate de l'époque `epoch` (qui commence à 0, comme en Keras)."""
+    return lr_cd_cnn(epoch) if cfg.scheduler else cfg.lr
+
+
 def lr_cd_cnn(epoch):
-    """Le scheduler du notebook CD-CNN (lr_scheduler_wang). epoch commence à 0, comme en Keras."""
+    """Le scheduler du notebook CD-CNN (lr_scheduler_wang). Option --scheduler."""
     if epoch < 20:
         return 0.01
     elif epoch < 50:
@@ -102,7 +116,7 @@ def creer_optimiseur(model, lr):
     return torch.optim.Adam(model.parameters(), lr=lr, eps=1e-7)
 
 
-def entrainer_une_epoque(model, loader, optimizer, critere, device):
+def entrainer_une_epoque(model, loader, optimizer, critere, device, clip=None):
     """Une passe sur les données d'entraînement. Renvoie (perte moyenne, précision)."""
     model.train()                       # active le dropout et la mise à jour des stats BN
     total_perte, total_ok, n = 0.0, 0, 0
@@ -112,6 +126,8 @@ def entrainer_une_epoque(model, loader, optimizer, critere, device):
         logits = model(xb)              # (B, n_classes)
         perte = critere(logits, yb)     # log-softmax + entropie croisée, sur des logits
         perte.backward()                # rétropropagation
+        if clip:                        # option --clip : la norme globale du gradient
+            torch.nn.utils.clip_grad_norm_(model.parameters(), clip)   # est ramenée à <= clip
         optimizer.step()                # mise à jour des poids
         if hasattr(model, "appliquer_contraintes"):
             model.appliquer_contraintes()   # MaxNorm, après la mise à jour (comme Keras)
@@ -155,8 +171,8 @@ def _lire_json(chemin):
 # ---------------------------------------------------------------------------
 def entrainer_global(cfg, Xt, yt, idx_train, idx_val, device, seed):
     fixer_graine(seed)
-    model = construire_modele(cfg.model, cfg.n_classes).to(device)
-    optimizer = creer_optimiseur(model, lr_cd_cnn(0))
+    model = construire_modele(cfg.model, cfg.n_classes, cfg.hidden).to(device)
+    optimizer = creer_optimiseur(model, lr_epoque(cfg, 0))
     critere = nn.CrossEntropyLoss()
     loader = faire_loader(Xt, yt, idx_train, cfg.batch_size, shuffle=True, seed=seed)
 
@@ -165,10 +181,10 @@ def entrainer_global(cfg, Xt, yt, idx_train, idx_val, device, seed):
 
     for epoch in range(cfg.max_epochs):
         t0 = time.time()
-        lr = lr_cd_cnn(epoch)
-        for g in optimizer.param_groups:   # équivalent de LearningRateScheduler (Keras)
+        lr = lr_epoque(cfg, epoch)
+        for g in optimizer.param_groups:   # lr fixe, ou LearningRateScheduler (Keras) si --scheduler
             g["lr"] = lr
-        tr_loss, tr_acc = entrainer_une_epoque(model, loader, optimizer, critere, device)
+        tr_loss, tr_acc = entrainer_une_epoque(model, loader, optimizer, critere, device, cfg.clip)
         va_loss, va_acc, _ = evaluer(model, Xt, yt, idx_val, device, critere)
         dt = time.time() - t0
         for k, v in zip(hist, (tr_loss, tr_acc, va_loss, va_acc, lr, dt)):
@@ -201,7 +217,7 @@ def adapter_sujets(cfg, etat_global, X, y, groups, sujets, device, X_brut=None, 
     mode "complet" : on utilise X (z-score du notebook, statistiques sur tout le sujet).
     mode "train"   : on re-normalise X_brut avec les statistiques des 75 % d'adaptation.
     """
-    model = construire_modele(cfg.model, cfg.n_classes).to(device)
+    model = construire_modele(cfg.model, cfg.n_classes, cfg.hidden).to(device)
     critere = nn.CrossEntropyLoss()
     res = {}
     for s in sujets:
@@ -223,7 +239,7 @@ def adapter_sujets(cfg, etat_global, X, y, groups, sujets, device, X_brut=None, 
             optimizer = creer_optimiseur(model, cfg.ft_lr)  # Adam neuf, lr fixe 5e-4
             loader = faire_loader(X_s, y_s, t, cfg.batch_size, shuffle=True, seed=graine)
             for _ in range(cfg.ft_epochs):
-                entrainer_une_epoque(model, loader, optimizer, critere, device)
+                entrainer_une_epoque(model, loader, optimizer, critere, device, cfg.clip)
 
             _, acc_apres, _ = evaluer(model, X_s, y_s, v, device, critere)
             avant.append(acc_avant)
@@ -238,21 +254,28 @@ def adapter_sujets(cfg, etat_global, X, y, groups, sujets, device, X_brut=None, 
 def lancer_validation_croisee(cfg):
     if cfg.quick:
         cfg.n_subjects, cfg.max_epochs = 10, 5
-    nom = f"{cfg.model}_{cfg.n_classes}cl" + ("_essai" if cfg.quick else "")
+    # Les options actives apparaissent dans le nom du dossier : pas de mélange entre variantes.
+    options = "".join(suffixe for suffixe, actif in (
+        ("_sched", cfg.scheduler), ("_clip", cfg.clip),
+        ("_normessai", cfg.norm_essai), ("_essai", cfg.quick)) if actif)
+    nom = f"{nom_modele(cfg.model, cfg.hidden)}_{cfg.n_classes}cl{options}"
     dossier = os.path.join(cfg.out_dir, nom)
     os.makedirs(dossier, exist_ok=True)
     cache_dir = cfg.cache_dir or os.path.join(cfg.out_dir, "cache")
 
     print("=" * 70)
-    print(f"{nom} : {cfg.n_classes} classes, {cfg.n_subjects} sujets max, {cfg.max_epochs} époques max")
+    lr_txt = "scheduler 0.01/0.001/0.0001" if cfg.scheduler else f"fixe {cfg.lr}"
+    print(f"{nom} : {cfg.n_classes} classes, {cfg.n_subjects} sujets max, "
+          f"{cfg.max_epochs} époques max, lr {lr_txt}, clip {cfg.clip}, norm. par essai {cfg.norm_essai}")
     print("=" * 70)
 
     # Si la config a changé depuis le dernier lancement, on prévient (risque de mélange).
     chemin_cfg = os.path.join(dossier, "config.json")
     if os.path.exists(chemin_cfg):
         ancienne = _lire_json(chemin_cfg)
-        diff = {k: (ancienne.get(k), v) for k, v in asdict(cfg).items()
-                if k not in ("data_dir", "out_dir", "cache_dir") and ancienne.get(k) != v}
+        defauts = asdict(Config())
+        diff = {k: (ancienne.get(k, defauts[k]), v) for k, v in asdict(cfg).items()
+                if k not in ("data_dir", "out_dir", "cache_dir") and ancienne.get(k, defauts[k]) != v}
         if diff:
             raise RuntimeError(f"La config diffère de celle déjà sauvegardée dans {dossier} : {diff}. "
                                "Change de dossier de sortie ou supprime les anciens résultats.")
@@ -261,6 +284,11 @@ def lancer_validation_croisee(cfg):
     device = choisir_device()
     X, y, groups = charger_donnees(cfg.data_dir, cfg.n_classes, cfg.n_subjects, True, cache_dir)
     modes = {"both": ["complet", "train"], "complet": ["complet"], "train": ["train"]}[cfg.adapt_norm]
+    if cfg.norm_essai:
+        # Le z-score par fenêtre annule le z-score par sujet : les deux modes seraient identiques.
+        X = normaliser_par_essai(X)
+        modes = ["complet"]
+        print("Normalisation par essai activée : un seul mode d'adaptation.")
     X_brut = None
     if "train" in modes:
         X_brut, y_b, g_b = charger_donnees(cfg.data_dir, cfg.n_classes, cfg.n_subjects, False, cache_dir)
@@ -269,7 +297,7 @@ def lancer_validation_croisee(cfg):
 
     print(f"Fenêtres : {len(y)}, sujets : {len(np.unique(groups))}, "
           f"classes : {np.bincount(y).tolist()}")
-    n_params = compter_parametres(construire_modele(cfg.model, cfg.n_classes))
+    n_params = compter_parametres(construire_modele(cfg.model, cfg.n_classes, cfg.hidden))
     print(f"Paramètres : {n_params}")
 
     gkf = GroupKFold(n_splits=cfg.n_folds)
@@ -329,7 +357,7 @@ def resumer(dossier, cfg, n_params, modes):
     """Moyenne ± écart-type sur les plis (écart-type de population, np.std, ddof=0)."""
     G = [_lire_json(os.path.join(dossier, f"pli{k}_global.json")) for k in range(1, cfg.n_folds + 1)]
     acc = [g["test_acc"] for g in G]
-    resume = {"modele": cfg.model, "n_classes": cfg.n_classes, "essai_rapide": cfg.quick,
+    resume = {"modele": nom_modele(cfg.model, cfg.hidden), "n_classes": cfg.n_classes, "essai_rapide": cfg.quick,
               "n_sujets": sum(len(g["sujets_test"]) for g in G), "parametres": n_params,
               "global_par_pli": acc, "global_moy": float(np.mean(acc)), "global_std": float(np.std(acc)),
               "temps_entrainement_par_pli_s": [g["temps_entrainement_s"] for g in G],

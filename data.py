@@ -152,6 +152,22 @@ def zscore_sujet(X_sub, fit_idx):
     return x[:, np.newaxis].astype(np.float32)
 
 
+def normaliser_par_essai(X, eps=1e-8):
+    """Option (désactivée par défaut) : z-score de CHAQUE fenêtre, électrode par électrode.
+
+    Pour chaque fenêtre et chaque électrode, on retire la moyenne sur les 480 instants
+    et on divise par l'écart-type. Les statistiques viennent de la fenêtre elle-même,
+    donc il n'y a aucune fuite entre train et test.
+    Remarque : ça annule le z-score par sujet (qui est lui aussi une transformation
+    affine par électrode), donc les deux modes d'adaptation deviennent identiques.
+
+    X : (N, 1, 64, 480). Renvoie la même forme, en float32.
+    """
+    moy = X.mean(axis=-1, keepdims=True)
+    std = X.std(axis=-1, keepdims=True)
+    return ((X - moy) / (std + eps)).astype(np.float32)
+
+
 # ---------------------------------------------------------------------------
 # Enveloppe : passage au format PyTorch + cache sur disque.
 # ---------------------------------------------------------------------------
