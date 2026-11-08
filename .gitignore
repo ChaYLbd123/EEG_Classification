@@ -14,3 +14,7 @@ __pycache__/
 
 # Journaux
 *.log
+
+# Exports de résultats (Drive) et archives
+*.zip
+eeg_resultats*/
